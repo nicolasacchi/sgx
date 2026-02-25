@@ -2,22 +2,27 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/nicolasacchi/sgx/internal/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	expStatus       string
-	expTags         string
-	expTeam         string
-	expStale        bool
-	expType         string
-	expCreatedAfter string
+	expStatus        string
+	expTags          string
+	expTeam          string
+	expStale         bool
+	expType          string
+	expCreatedAfter  string
 	expCreatedBefore string
-	expCreator      string
+	expCreator       string
+	expOwner         string
+	expSince         string
 )
 
 var experimentsCmd = &cobra.Command{
@@ -84,20 +89,30 @@ Examples:
 			cmdArgs["status"] = expStatus
 		}
 
+		var finalData json.RawMessage
+		var pagination any
+
 		if noPaginate || pageFlag > 0 {
 			resp, err := c.Get(ctx, "/console/v1/experiments", params)
 			if err != nil {
 				return err
 			}
-			return output.PrintSuccess(getFormat(), "experiments.list", cmdArgs, resp.Data, resp.Pagination)
+			finalData = resp.Data
+			pagination = resp.Pagination
+		} else {
+			data, pg, err := c.GetAll(ctx, "/console/v1/experiments", params)
+			if err != nil {
+				return err
+			}
+			finalData = mergeRawMessages(data)
+			pagination = pg
 		}
 
-		data, pagination, err := c.GetAll(ctx, "/console/v1/experiments", params)
+		finalData, err = filterExperiments(finalData, expOwner, expSince)
 		if err != nil {
 			return err
 		}
-		merged := mergeRawMessages(data)
-		return output.PrintSuccess(getFormat(), "experiments.list", cmdArgs, merged, pagination)
+		return output.PrintSuccess(getFormat(), "experiments.list", cmdArgs, finalData, pagination)
 	},
 }
 
@@ -147,6 +162,57 @@ Examples:
 	},
 }
 
+func filterExperiments(data json.RawMessage, owner, since string) (json.RawMessage, error) {
+	if owner == "" && since == "" {
+		return data, nil
+	}
+
+	var experiments []map[string]any
+	if err := json.Unmarshal(data, &experiments); err != nil {
+		return data, nil
+	}
+
+	var sinceTime time.Time
+	if since != "" {
+		t, err := time.Parse("2006-01-02", since)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --since date: %w", err)
+		}
+		sinceTime = t
+	}
+
+	filtered := make([]map[string]any, 0)
+	for _, exp := range experiments {
+		if owner != "" {
+			creator, _ := exp["creatorName"].(string)
+			creatorEmail, _ := exp["creatorEmail"].(string)
+			if !strings.Contains(strings.ToLower(creator), strings.ToLower(owner)) &&
+				!strings.Contains(strings.ToLower(creatorEmail), strings.ToLower(owner)) {
+				continue
+			}
+		}
+		if since != "" {
+			var latest time.Time
+			for _, field := range []string{"lastModifiedTime", "createdTime"} {
+				if dateStr, ok := exp[field].(string); ok {
+					if t, err := time.Parse(time.RFC3339, dateStr); err == nil {
+						if t.After(latest) {
+							latest = t
+						}
+					}
+				}
+			}
+			if !latest.IsZero() && latest.Before(sinceTime) {
+				continue
+			}
+		}
+		filtered = append(filtered, exp)
+	}
+
+	result, _ := json.Marshal(filtered)
+	return result, nil
+}
+
 func init() {
 	experimentsListCmd.Flags().StringVar(&expStatus, "status", "", "Filter by status: setup, active, decision_made, abandoned")
 	experimentsListCmd.Flags().StringVar(&expTags, "tags", "", "Filter by tag IDs (comma-separated)")
@@ -156,6 +222,8 @@ func init() {
 	experimentsListCmd.Flags().StringVar(&expCreatedAfter, "created-after", "", "Created after date (YYYY-MM-DD)")
 	experimentsListCmd.Flags().StringVar(&expCreatedBefore, "created-before", "", "Created before date (YYYY-MM-DD)")
 	experimentsListCmd.Flags().StringVar(&expCreator, "creator", "", "Filter by creator name")
+	experimentsListCmd.Flags().StringVar(&expOwner, "owner", "", "Filter by owner/creator (client-side, substring match)")
+	experimentsListCmd.Flags().StringVar(&expSince, "since", "", "Only experiments modified after date (YYYY-MM-DD, client-side)")
 
 	experimentsCmd.AddCommand(experimentsListCmd)
 	experimentsCmd.AddCommand(experimentsGetCmd)

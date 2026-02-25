@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"os"
 
 	"github.com/nicolasacchi/sgx/internal/output"
 	"github.com/spf13/cobra"
@@ -29,6 +31,11 @@ Examples:
 		c, err := getClient(cmd)
 		if err != nil {
 			return err
+		}
+
+		if exposureExperiments == "" && exposureGates == "" && exposureConfigs == "" {
+			fmt.Fprintln(os.Stderr, "tip: no filters specified — showing global exposure counts")
+			fmt.Fprintln(os.Stderr, "for specific data, use --experiments, --gates, or --configs")
 		}
 
 		params := url.Values{}

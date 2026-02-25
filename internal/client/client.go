@@ -48,6 +48,7 @@ type Pagination struct {
 type APIError struct {
 	StatusCode int
 	Message    string
+	Hint       string
 }
 
 func (e *APIError) Error() string {
@@ -162,7 +163,7 @@ func (c *Client) doGet(ctx context.Context, rawURL string) (*APIResponse, error)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg := extractErrorMessage(body, resp.StatusCode)
-		return nil, &APIError{StatusCode: resp.StatusCode, Message: msg}
+		return nil, &APIError{StatusCode: resp.StatusCode, Message: msg, Hint: hintForError(resp.StatusCode, rawURL)}
 	}
 
 	var apiResp APIResponse
@@ -256,6 +257,29 @@ func extractErrorMessage(body []byte, statusCode int) string {
 	default:
 		return http.StatusText(statusCode)
 	}
+}
+
+func hintForError(statusCode int, rawURL string) string {
+	switch statusCode {
+	case 400:
+		if strings.Contains(rawURL, "/pulse_results") {
+			return "try without --control/--test to auto-resolve, or check groups with 'sgx experiments get <id>'"
+		}
+	case 401:
+		return "check your API key: --api-key flag, STATSIG_API_KEY env, or 'sgx config list'"
+	case 403:
+		return "your Console API key may lack permissions for this resource"
+	case 404:
+		if strings.Contains(rawURL, "/reports") {
+			return "reports may not exist for this date — try a date at least 2 days ago"
+		}
+		if strings.Contains(rawURL, "/experiments/") {
+			return "check experiment ID with 'sgx experiments list'"
+		}
+	case 429:
+		return "rate limited — reduce concurrency or wait a moment"
+	}
+	return ""
 }
 
 func humanBytes(b int) string {

@@ -8,14 +8,15 @@ import (
 )
 
 var (
-	version    = "dev"
-	apiKeyFlag string
-	formatFlag string
+	version     = "dev"
+	apiKeyFlag  string
+	formatFlag  string
 	baseURLFlag string
+	projectFlag string
 	verboseFlag bool
-	noPaginate bool
-	pageFlag   int
-	limitFlag  int
+	noPaginate  bool
+	pageFlag    int
+	limitFlag   int
 )
 
 var rootCmd = &cobra.Command{
@@ -45,16 +46,16 @@ func Execute() error {
 }
 
 func getClient(cmd *cobra.Command) (*client.Client, error) {
-	apiKey, err := config.LoadAPIKey(apiKeyFlag)
+	apiKey, err := config.LoadAPIKey(apiKeyFlag, projectFlag)
 	if err != nil {
 		return nil, err
 	}
-	baseURL := config.LoadBaseURL(baseURLFlag)
+	baseURL := config.LoadBaseURL(baseURLFlag, projectFlag)
 	return client.New(apiKey, baseURL, verboseFlag), nil
 }
 
 func getFormat() output.Format {
-	f := config.LoadFormat(formatFlag)
+	f := config.LoadFormat(formatFlag, projectFlag)
 	switch output.Format(f) {
 	case output.FormatTable:
 		return output.FormatTable
@@ -67,6 +68,7 @@ func getFormat() output.Format {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&apiKeyFlag, "api-key", "", "Statsig Console API key (overrides STATSIG_API_KEY env var)")
+	rootCmd.PersistentFlags().StringVar(&projectFlag, "project", "", "Use a named project from ~/.config/sgx/config.json")
 	rootCmd.PersistentFlags().StringVar(&formatFlag, "format", "", "Output format: json (default), table, compact")
 	rootCmd.PersistentFlags().StringVar(&baseURLFlag, "base-url", "", "API base URL (default: https://statsigapi.net)")
 	rootCmd.PersistentFlags().BoolVar(&verboseFlag, "verbose", false, "Print request details to stderr")

@@ -100,9 +100,35 @@ var commandColumns = map[string][]ColumnDef{
 		{Header: "ID", Key: "id"},
 		{Header: "NAME", Key: "name"},
 	},
+	"config.list": {
+		{Header: "NAME", Key: "name"},
+		{Header: "API KEY", Key: "api_key"},
+		{Header: "BASE URL", Key: "base_url"},
+		{Header: "FORMAT", Key: "format"},
+		{Header: "DEFAULT", Key: "default"},
+	},
+	"events.catalog": {
+		{Header: "NAME", Key: "name"},
+		{Header: "TOTAL COUNT", Key: "total_count"},
+		{Header: "ENTRIES", Key: "entries"},
+	},
+	"audit.summary": {
+		{Header: "DATE", Key: "date"},
+		{Header: "TOTAL", Key: "total"},
+		{Header: "USERS", Key: "users", Format: formatAuditUsers},
+	},
+	"segments.list": {
+		{Header: "ID", Key: "id"},
+		{Header: "NAME", Key: "name"},
+		{Header: "TYPE", Key: "type"},
+	},
 }
 
 func printTable(command string, data json.RawMessage) error {
+	if command == "overview" {
+		return printOverviewTable(data)
+	}
+
 	columns, ok := commandColumns[command]
 	if !ok {
 		// Fallback: just print as JSON
@@ -147,6 +173,96 @@ func printTable(command string, data json.RawMessage) error {
 	}
 
 	t.Render()
+	return nil
+}
+
+func formatAuditUsers(v any) string {
+	arr, ok := v.([]any)
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, len(arr))
+	for _, item := range arr {
+		u, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		user, _ := u["user"].(string)
+		count, _ := u["count"].(float64)
+		parts = append(parts, fmt.Sprintf("%s(%d)", user, int(count)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func printOverviewTable(data json.RawMessage) error {
+	var overview struct {
+		GeneratedAt    string           `json:"generated_at"`
+		ProjectSummary map[string]any   `json:"project_summary"`
+		Experiments    []map[string]any `json:"experiments"`
+		StaleGates     []map[string]any `json:"stale_gates"`
+	}
+	if err := json.Unmarshal(data, &overview); err != nil {
+		return printJSON(SuccessEnvelope{OK: true, Command: "overview", Data: data})
+	}
+
+	useTTY := term.IsTerminal(int(os.Stdout.Fd()))
+
+	// Section 1: Project Summary
+	t1 := table.NewWriter()
+	t1.SetOutputMirror(os.Stdout)
+	if useTTY {
+		t1.SetStyle(table.StyleLight)
+	}
+	t1.SetTitle("PROJECT SUMMARY  %s", overview.GeneratedAt)
+	t1.AppendHeader(table.Row{"METRIC", "COUNT"})
+	for key, val := range overview.ProjectSummary {
+		t1.AppendRow(table.Row{key, formatValue(val)})
+	}
+	t1.Render()
+	fmt.Println()
+
+	// Section 2: Active Experiments
+	if len(overview.Experiments) > 0 {
+		t2 := table.NewWriter()
+		t2.SetOutputMirror(os.Stdout)
+		if useTTY {
+			t2.SetStyle(table.StyleLight)
+		}
+		t2.SetTitle("EXPERIMENTS")
+		t2.AppendHeader(table.Row{"ID", "NAME", "STATUS", "ALLOC%", "GROUPS", "PULSE"})
+		for _, exp := range overview.Experiments {
+			hasPulse := "no"
+			if p, ok := exp["pulse"]; ok && p != nil {
+				hasPulse = "yes"
+			}
+			t2.AppendRow(table.Row{
+				formatValue(exp["id"]),
+				formatValue(exp["name"]),
+				formatValue(exp["status"]),
+				formatValue(exp["allocation"]),
+				formatGroups(exp["groups"]),
+				hasPulse,
+			})
+		}
+		t2.Render()
+		fmt.Println()
+	}
+
+	// Section 3: Stale Gates
+	if len(overview.StaleGates) > 0 {
+		t3 := table.NewWriter()
+		t3.SetOutputMirror(os.Stdout)
+		if useTTY {
+			t3.SetStyle(table.StyleLight)
+		}
+		t3.SetTitle("STALE GATES")
+		t3.AppendHeader(table.Row{"ID", "TYPE"})
+		for _, g := range overview.StaleGates {
+			t3.AppendRow(table.Row{formatValue(g["id"]), formatValue(g["type"])})
+		}
+		t3.Render()
+	}
+
 	return nil
 }
 

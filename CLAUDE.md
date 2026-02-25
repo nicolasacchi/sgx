@@ -11,15 +11,30 @@ Resolution order (first non-empty wins):
 1. `--api-key` flag
 2. `STATSIG_API_KEY` env var
 3. `STATSIG_CONSOLE_KEY` env var
-4. `~/.config/sgx/config.json` (`{"api_key": "...", "base_url": "...", "format": "..."}`)
+4. `~/.config/sgx/config.json` — project from `--project` flag, then `default_project`, then legacy `api_key`
 
 Requires a **Console API Key** from [console.statsig.com/api_keys](https://console.statsig.com/api_keys).
+
+### Multi-project config
+
+```json
+{
+  "default_project": "production",
+  "projects": {
+    "production": { "api_key": "console-abc123" },
+    "staging": { "api_key": "console-xyz789", "format": "table" }
+  }
+}
+```
+
+Each project can override `base_url` and `format`. Legacy flat config (`{"api_key": "..."}`) still works.
 
 ## Global Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--api-key` | — | Statsig Console API key (overrides env var) |
+| `--project` | — | Use named project from config file |
 | `--format` | `json` | Output format: `json`, `table`, `compact` |
 | `--base-url` | `https://statsigapi.net` | API base URL |
 | `--verbose` | false | Print request/response details to stderr |
@@ -35,10 +50,14 @@ Requires a **Console API Key** from [console.statsig.com/api_keys](https://conso
 sgx experiments list                                          # List all experiments
 sgx experiments list --status active                          # Filter by status
 sgx experiments list --tags tag1,tag2 --creator john          # Filter by tags/creator
+sgx experiments list --owner elian                            # Client-side owner filter
+sgx experiments list --since 2025-02-20                       # Modified after date
 sgx experiments get my_experiment                             # Get experiment details
 sgx experiments context my_experiment                         # Get experiment context
-sgx experiments pulse my_experiment                           # Statistical pulse results
+sgx experiments pulse my_experiment                           # Auto-resolves control/test groups
 sgx experiments pulse my_experiment --no-cuped --confidence 90
+sgx experiments pulse my_experiment --control id1 --test id2  # Explicit group IDs
+sgx experiments inspect my_experiment                         # Full parallel inspection (6 endpoints)
 sgx experiments exposures my_experiment                       # Cumulative exposure counts
 sgx experiments versions my_experiment                        # Version history
 sgx experiments overrides my_experiment                       # Override rules
@@ -55,7 +74,9 @@ sgx experiments overrides my_experiment                       # Override rules
 | `--type` | — | Experiment type |
 | `--created-after` | — | YYYY-MM-DD |
 | `--created-before` | — | YYYY-MM-DD |
-| `--creator` | — | Creator name |
+| `--creator` | — | Creator name (API-side) |
+| `--owner` | — | Owner/creator substring match (client-side) |
+| `--since` | — | Modified after date YYYY-MM-DD (client-side) |
 
 **experiments pulse flags:**
 
@@ -72,6 +93,8 @@ sgx experiments overrides my_experiment                       # Override rules
 | `--bh-variant` | false | Benjamini-Hochberg per variant |
 | `--control` | — | Control group ID |
 | `--test` | — | Test group ID |
+
+**experiments inspect**: Parallel fetch of experiment config, pulse (with auto-group-resolution), cumulative exposures, context, overrides, and versions. Returns merged JSON object with all 6 sections. Non-fatal failures for secondary data (pulse, exposures, etc.).
 
 ### gates
 
@@ -138,8 +161,11 @@ Metric IDs use format `<name>::<type>` (e.g. `add_to_cart::event_count`).
 ```bash
 sgx events list                                              # List logged events (default limit 50)
 sgx events list --limit 20                                   # Custom limit
+sgx events list --since 2025-02-20 --until 2025-02-25       # Time-filtered (client-side)
 sgx events get purchase                                      # Get event details
 sgx events metrics purchase                                  # Metrics derived from event
+sgx events catalog                                           # Deduplicated event names with counts
+sgx events catalog --format table                            # Tabular catalog
 ```
 
 ### holdouts
@@ -184,6 +210,7 @@ Both `--type` and `--date` are required.
 sgx audit                                                    # Recent audit logs
 sgx audit --action experiment_start --start-date 2025-02-01
 sgx audit --start-date 2025-02-01 --end-date 2025-02-25 --order asc
+sgx audit --summary --start-date 2025-02-01                  # Grouped by day/user
 ```
 
 | Flag | Default | Description |
@@ -193,6 +220,14 @@ sgx audit --start-date 2025-02-01 --end-date 2025-02-25 --order asc
 | `--end-date` | — | YYYY-MM-DD |
 | `--sort` | `date` | Sort key |
 | `--order` | `desc` | `asc` or `desc` |
+| `--summary` | false | Group entries by day and user |
+
+### segments
+
+```bash
+sgx segments list                                            # List all segments
+sgx segments get my_segment                                  # Get segment details
+```
 
 ### overview
 
@@ -212,6 +247,17 @@ sgx overview --experiments exp1,exp2                         # Pulse only for sp
 | `--experiments` | — | Comma-separated experiment IDs |
 
 Returns: `project_summary` (counts), `experiments` (with pulse data), `gates`, `stale_gates`, `holdouts`, `exposure_counts`, `alerts`.
+
+### config
+
+```bash
+sgx config add production --api-key console-abc123           # Add/update a project
+sgx config add staging --api-key console-xyz --format table  # With custom format
+sgx config remove staging                                    # Remove a project
+sgx config list                                              # List all projects (keys masked)
+sgx config use production                                    # Set default project
+sgx config current                                           # Show resolved active project
+```
 
 ### version
 
@@ -246,7 +292,7 @@ All commands output JSON to stdout. Errors and diagnostics go to stderr.
 }
 ```
 
-**Table format** (available for: experiments.list, experiments.get, gates.list, metrics.list, events.list, holdouts.list, layers.list):
+**Table format** (available for: experiments.list, experiments.get, gates.list, metrics.list, events.list, events.catalog, holdouts.list, layers.list, segments.list, config.list, audit.summary, overview):
 
 ```bash
 sgx experiments list --format table
@@ -289,8 +335,12 @@ Requires Go 1.25+.
 cmd/sgx/main.go                          # Entry point, version injection, exit codes
 internal/client/client.go                # HTTP client, retries, pagination
 internal/client/client_test.go           # Client tests (httptest)
-internal/config/config.go                # Auth resolution (flag > env > config file)
+internal/config/config.go                # Auth resolution, multi-project config, CRUD
+internal/config/config_test.go           # Config tests (project resolution, add/remove)
 internal/commands/root.go                # Root command, global flags, getClient()
+internal/commands/config.go              # config add, remove, list, use, current
+internal/commands/segments.go            # segments list, get
+internal/commands/experiments_inspect.go # experiments inspect (parallel 6-endpoint fetch)
 internal/commands/experiments.go         # experiments list, get, context
 internal/commands/experiments_pulse.go   # experiments pulse
 internal/commands/experiments_extra.go   # experiments exposures, versions, overrides

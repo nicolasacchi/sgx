@@ -36,9 +36,39 @@ Set your Statsig Console API key via one of:
 1. `--api-key` flag
 2. `STATSIG_API_KEY` environment variable
 3. `STATSIG_CONSOLE_KEY` environment variable
-4. `~/.config/sgx/config.json` (`{"api_key": "console-..."}`)
+4. `~/.config/sgx/config.json` (named projects or legacy flat config)
 
 Generate a Console API key at [console.statsig.com/api_keys](https://console.statsig.com/api_keys).
+
+### Multi-project configuration
+
+Store multiple API keys as named projects:
+
+```bash
+sgx config add production --api-key console-abc123
+sgx config add staging --api-key console-xyz789
+sgx config list
+sgx config use production        # Set default project
+sgx config current               # Show active project
+```
+
+Use `--project` to switch per-command:
+
+```bash
+sgx experiments list --project staging
+```
+
+Config file (`~/.config/sgx/config.json`):
+
+```json
+{
+  "default_project": "production",
+  "projects": {
+    "production": { "api_key": "console-abc123" },
+    "staging": { "api_key": "console-xyz789", "format": "table" }
+  }
+}
+```
 
 ## Usage
 
@@ -46,8 +76,11 @@ Generate a Console API key at [console.statsig.com/api_keys](https://console.sta
 
 ```bash
 sgx experiments list --status active
+sgx experiments list --owner elian --since 2025-02-20
 sgx experiments get my_experiment
+sgx experiments pulse my_experiment                     # Auto-resolves groups
 sgx experiments pulse my_experiment --confidence 95
+sgx experiments inspect my_experiment                   # Full parallel inspection
 sgx experiments exposures my_experiment
 ```
 
@@ -69,17 +102,35 @@ sgx metrics value add_to_cart::event_count --date 2025-02-20
 sgx metrics experiments add_to_cart::event_count
 ```
 
+### Events
+
+```bash
+sgx events list
+sgx events list --since 2025-02-20 --until 2025-02-25
+sgx events catalog                                     # Deduplicated event names
+sgx events catalog --format table
+```
+
+### Segments
+
+```bash
+sgx segments list
+sgx segments get my_segment
+```
+
 ### Overview (project snapshot)
 
 ```bash
 sgx overview                    # Parallel fetch of all resources
 sgx overview --full             # Include pulse for all active experiments
+sgx overview --format table     # Human-readable dashboard
 ```
 
 ### Audit trail
 
 ```bash
 sgx audit --start-date 2025-02-01 --end-date 2025-02-25
+sgx audit --summary --start-date 2025-02-01             # Grouped by day/user
 ```
 
 ## Output
