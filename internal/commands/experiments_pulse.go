@@ -59,35 +59,12 @@ Examples:
 			}
 		}
 
-		params := url.Values{}
-		if pulseNoCuped {
-			params.Set("cuped", "false")
-		} else {
-			params.Set("cuped", "true")
-		}
-		if pulseConfidence > 0 {
-			params.Set("confidence", fmt.Sprintf("%d", pulseConfidence))
-		}
-		if pulseDate != "" {
-			params.Set("date", pulseDate)
-		}
-		if pulseBonferroniVar {
-			params.Set("bonferroniPerVariant", "true")
-		}
-		if pulseBonferroniMetric {
-			params.Set("bonferroniPerMetric", "true")
-		}
-		if pulseBonferroniWeight > 0 {
-			params.Set("bonferroniAlphaWeight", fmt.Sprintf("%f", pulseBonferroniWeight))
-		}
-		if pulseBHMetric {
-			params.Set("bhPerMetric", "true")
-		}
-		if pulseBHVariant {
-			params.Set("bhPerVariant", "true")
-		}
-		params.Set("control", control)
-		params.Set("test", test)
+		params := buildPulseParams(
+			pulseNoCuped, pulseConfidence, pulseDate,
+			pulseBonferroniVar, pulseBonferroniMetric, pulseBonferroniWeight,
+			pulseBHMetric, pulseBHVariant,
+			control, test,
+		)
 
 		cmdArgs := map[string]any{
 			"id":      expID,
@@ -102,6 +79,44 @@ Examples:
 		}
 		return output.PrintSuccess(getFormat(), "experiments.pulse", cmdArgs, resp.Data, nil)
 	},
+}
+
+func buildPulseParams(
+	noCuped bool, confidence int, date string,
+	bonferroniVar, bonferroniMetric bool, bonferroniWeight float64,
+	bhMetric, bhVariant bool,
+	control, test string,
+) url.Values {
+	params := url.Values{}
+	if noCuped {
+		params.Set("cuped", "false")
+	} else {
+		params.Set("cuped", "true")
+	}
+	if confidence > 0 {
+		params.Set("confidence", fmt.Sprintf("%d", confidence))
+	}
+	if date != "" {
+		params.Set("date", date)
+	}
+	if bonferroniVar {
+		params.Set("applyBonferroniPerVariant", "true")
+	}
+	if bonferroniMetric {
+		params.Set("applyBonferroniPerMetric", "true")
+	}
+	if bonferroniWeight > 0 {
+		params.Set("bonferroniPrimaryMetricWeight", fmt.Sprintf("%f", bonferroniWeight))
+	}
+	if bhMetric {
+		params.Set("applyBenjaminiHochbergPerMetric", "true")
+	}
+	if bhVariant {
+		params.Set("applyBenjaminiHochbergPerVariant", "true")
+	}
+	params.Set("control", control)
+	params.Set("test", test)
+	return params
 }
 
 func resolveGroups(ctx context.Context, c *client.Client, expID string) (string, string, error) {
