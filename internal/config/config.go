@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	cliconfig "github.com/nicolasacchi/clicore/config"
 )
 
 type Project struct {
@@ -53,14 +55,14 @@ func saveConfigFile(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0600)
+	// Atomic temp+rename (clicore) — replaces os.WriteFile (which truncates the
+	// live file first) so an interrupted write can't corrupt a config that
+	// already holds credentials.
+	return cliconfig.WriteFileAtomic(path, append(data, '\n'), 0600)
 }
 
 func resolveProject(cfg *Config, projectFlag string) *Project {

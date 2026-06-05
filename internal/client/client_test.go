@@ -135,7 +135,10 @@ func TestGetAll_Pagination(t *testing.T) {
 		page++
 		var nextPage *string
 		if page == 1 {
-			np := r.URL.Scheme + "://" + r.URL.Host + "/console/v1/test?page=2&limit=2"
+			// Server-side r.URL has no Scheme/Host (the host is in r.Host), so
+			// build the absolute next-page URL from r.Host — otherwise nextPage
+			// is ":///console/..." and GetAll produces an invalid host:port URL.
+			np := "http://" + r.Host + "/console/v1/test?page=2&limit=2"
 			nextPage = &np
 		}
 		resp := map[string]any{
