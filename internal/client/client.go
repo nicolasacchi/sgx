@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nicolasacchi/clicore/cierrors"
 )
 
 const (
@@ -55,15 +57,10 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("%d: %s", e.StatusCode, e.Message)
 }
 
+// ExitCode delegates to the fleet-canonical table (auth=2, validation=3,
+// not_found=4, rate_limited=5, else 1). Cobra usage errors still exit 3 too.
 func (e *APIError) ExitCode() int {
-	switch {
-	case e.StatusCode == 401 || e.StatusCode == 403:
-		return 2
-	case e.StatusCode == 404:
-		return 4
-	default:
-		return 1
-	}
+	return cierrors.ExitCodeFor(e.StatusCode, "")
 }
 
 func New(apiKey, baseURL string, verbose bool) *Client {
