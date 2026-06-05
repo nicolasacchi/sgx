@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/jedib0t/go-pretty/v6 v6.6.7
-	github.com/nicolasacchi/clicore v0.1.3
+	github.com/nicolasacchi/clicore v0.1.4
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.11.0
 	golang.org/x/term v0.32.0
